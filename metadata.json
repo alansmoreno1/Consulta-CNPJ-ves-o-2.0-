@@ -1,0 +1,5 @@
+{
+  "name": "Consulta CNPJ 2.0",
+  "description": "Ferramenta profissional para consulta em massa de CNPJs via BrasilAPI com exportação CSV e modo escuro.",
+  "requestFramePermissions": []
+}
