@@ -70,14 +70,88 @@ export default function App() {
       }
 
       try {
-        const response = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${numbersOnly}`);
-        
-        if (!response.ok) {
-          throw new Error(response.status === 404 ? 'CNPJ não encontrado' : 'Erro na API');
+        let data;
+        let success = false;
+        let lastErrorMessage = '';
+
+        // Tentativa 1: Proxy do próprio servidor (que tenta BrasilAPI e Minha Receita)
+        try {
+          const response = await fetch(`/api/cnpj/${numbersOnly}`);
+          if (response.ok) {
+            data = await response.json();
+            success = true;
+          } else {
+            const errData = await response.json().catch(() => ({}));
+            lastErrorMessage = response.status === 404 ? 'CNPJ não encontrado' : errData.error || 'Erro na API remota';
+          }
+        } catch (err: any) {
+          lastErrorMessage = err.message || 'Erro de rede no servidor';
         }
 
-        const data = await response.json();
-        newResults.push(data);
+        // Tentativa 2: Se falhar, tenta chamar BrasilAPI diretamente do navegador (bypassa IP da nuvem)
+        if (!success) {
+          try {
+            console.log(`[Frontend] Servidor falhou (${lastErrorMessage}). Tentando BrasilAPI diretamente do navegador...`);
+            const clientResponse = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${numbersOnly}`);
+            if (clientResponse.ok) {
+              data = await clientResponse.json();
+              success = true;
+            } else {
+              lastErrorMessage = clientResponse.status === 404 ? 'CNPJ não encontrado' : 'Erro na BrasilAPI direta';
+            }
+          } catch (err: any) {
+            lastErrorMessage = 'Bloqueio de CORS ou rede local';
+          }
+        }
+
+        // Tentativa 3: Se ainda falhar, tenta chamar Minha Receita diretamente do navegador
+        if (!success) {
+          try {
+            console.log(`[Frontend] BrasilAPI direta falhou. Tentando Minha Receita diretamente do navegador...`);
+            const clientResponse2 = await fetch(`https://minhareceita.org/${numbersOnly}`);
+            if (clientResponse2.ok) {
+              const rawData = await clientResponse2.json();
+              if (rawData && rawData.cnpj) {
+                // Função auxiliar interna para mapear formato
+                const situacoes: Record<number, string> = { 1: "NULA", 2: "ATIVA", 3: "SUSPENSA", 4: "INAPTA", 5: "BAIXADA" };
+                data = {
+                  cnpj: rawData.cnpj || "",
+                  razao_social: rawData.razao_social || "",
+                  nome_fantasia: rawData.nome_fantasia || "",
+                  descricao_situacao_cadastral: situacoes[rawData.situacao_cadastral] || "ATIVA",
+                  data_inicio_atividade: rawData.data_inicio_atividade || "",
+                  uf: rawData.uf || "",
+                  municipio: rawData.municipio || "",
+                  bairro: rawData.bairro || "",
+                  logradouro: rawData.logradouro || "",
+                  numero: rawData.numero || "",
+                  complemento: rawData.complemento || "",
+                  cep: rawData.cep || "",
+                  cnae_fiscal: rawData.cnae_fiscal || 0,
+                  cnae_fiscal_descricao: rawData.cnae_fiscal_descricao || "Atividade principal",
+                  natureza_juridica: rawData.natureza_juridica || rawData.codigo_natureza_juridica || "",
+                  opcao_pelo_simples: rawData.opcao_pelo_simples ?? false,
+                  data_opcao_pelo_simples: rawData.data_opcao_pelo_simples || null,
+                  opcao_pelo_mei: rawData.opcao_pelo_mei ?? false,
+                  email: rawData.email || rawData.correio_eletronico || null,
+                  ddd_telefone_1: rawData.ddd_telefone_1 || null,
+                  ddd_telefone_2: rawData.ddd_telefone_2 || null,
+                };
+                success = true;
+              }
+            } else {
+              lastErrorMessage = clientResponse2.status === 404 ? 'CNPJ não encontrado' : 'Erro no Minha Receita direto';
+            }
+          } catch (err: any) {
+            lastErrorMessage = 'Falha crítica em todos os provedores';
+          }
+        }
+
+        if (success && data) {
+          newResults.push(data);
+        } else {
+          throw new Error(lastErrorMessage || 'Erro desconhecido');
+        }
       } catch (err: any) {
         newErrors.push({ cnpj: formatCNPJ(numbersOnly) || rawCnpj, msg: err.message });
       }
